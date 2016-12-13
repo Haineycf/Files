@@ -1,0 +1,305 @@
+---
+title: "Outlier Analysis for CAMP \n Exploratory Analysis"
+author: "Haineycf"
+date: "December 2, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,fig.width=8, fig.height=4)
+```
+
+
+
+**definition**: "In statistics, an outlier is an observation point that is distant from other observations. An outlier may be due to variability in the measurement or it may indicate experimental error; the latter are sometimes excluded from the data set." - Wikipedia
+
+There are essential aspects to this definition that need to be addressed: it needs to be a single point and needs to be distant from other points.  It can be a true value, for example a mutation in a gene causing a gene to overexpress.  On the other side, it can be incorrect information such as in a probe for the gene is not unique and can be mapped to two or more different parts of the genome experimental causing the signal to be higher than the other probes in the gene.   
+
+For the CAMP data, an outlier can be someone entering data incorrectly, or the test subject could have some serious other health effects unknown to the researchers.  
+
+An essential part of exploratory analysis is to determine outliers and the never ending question of removing them or include them in further analysis.   Removing outliers can improve performance of downstream analysis, especially machine learning algorithms that are sensitive to extremes.  If the outlier is a true value and not merely an input mistake it warrants further discussion.
+
+
+## Detecting Outliers  
+The one of the statistical method utilized in this report is Gubb's Test.  This test will detect the point with the largest deviation from the sample mean and perform a t-test to determine if it should be labeled as an outlier.  This test needs to be iterated until there are no more outliers.  
+
+Testing outliers one by one is rather tedious, especially if there are a large number of elements.  One way to get around this is to an inital Grubb's test to identify if there are outliers, than use other methods to remove the outlier.  This is the path this analysis will take.
+
+
+## Removing Outliers  
+There are a number of ways to remove outliers.  One could look at the distribution of data and simply move it by eye, but this is neither scientific nor precise.  There are a number of scripts and computational methods to look at these values; I will review a couple of them.  This essay will focus on removing outliers before performing machine learning algorithms.  The car package for R has a script to find outliers after constructing a linear model. This will not be reviewed here.
+
+The first method utilizes Chebyshev's Theorem: the probability of a random variable differing from its mean by more than k standard deviations is less than or equal to 1/k^2.  I have looked at removing observations that are outside of 2 standard deviation in one round.  This is the first method utilized with the hemog and wbc data.  Only one round of outlier removal is recommended.
+
+A second method uses interquartile analysis to evaluate the outliers.  This method tags values that are tagged outside a specific interquartile, 25 and 75, but this can be altered if the tails of the distribution are wide, i.e. there may be meaningful values in there.
+
+A method similar to interquartile analysis involves taking the labeling of outliers from boxplot and removing those.
+
+## Dataset before outliers removed.
+
+The data for wbc and hemog were obtained from the CAMP study data.  It is a longevity study.  The purpose of graphing hemog x wbc is a graphical representation purposes of outliers only and not a study of interactions of the two.
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+dat <-read.csv("C:/Users/Haineycf/Documents/CAMP/CAMP_csv/camp_teach.csv",header =T, na.strings=c(""))
+
+## change dataframe for all subsequent analysis
+dat$Factors <- paste(dat$anypet,dat$woodstove, dat$dehumid, dat$parent_smokes,
+                     dat$any_smokes)
+dat$group1[dat$GENDER == "f" ]<-1
+dat$group1[dat$GENDER == "m" ]<-2
+#unique(dat$ETHNIC)
+dat$group2[dat$ETHNIC == "b" ]<-1
+dat$group2[dat$ETHNIC == "w" ]<-2
+dat$group2[dat$ETHNIC == "h" ]<-3
+dat$group2[dat$ETHNIC == "o" ]<-4
+
+
+## plot raw data looking for outliers
+
+opar <- par(no.readonly=TRUE)
+par(fig=c(0,0.8,0,0.8))
+plot(dat$hemog,dat$wbc,
+     xlab = "log(hemog)",
+     ylab = "wbc",
+     log= "x")
+par(fig=c(0,0.8,.35,1), new=TRUE)
+boxplot(dat$hemog, horizontal = TRUE, axes = FALSE,
+        log= "x")
+
+par(fig=c(0.65,1,0,0.8), new= TRUE)
+boxplot(dat$wbc, axes= FALSE)
+mtext("hemog x wbc", side =3, outer= TRUE, line= -3)
+par(opar)
+
+d<-density(dat$wbc, na.rm = TRUE) # returns the density data, allows for missing data
+par(mfrow = c(1,2))
+plot(d, main="Hemog") # plots the results 
+rug(dat$wbc)
+d <- density(dat$hemog, na.rm = TRUE) # returns the density data, allows for missing data
+plot(d, main="WBC") # plots the results 
+rug(dat$hemog)
+par(opar)
+
+library(outliers)
+dat1 <-dat[ which(dat$hemog >0), ]
+dat_cochran <-cochran.test(hemog~group1,dat1)
+dat_grubs <- grubbs.test(dat$hemog)
+```
+   
+
+```{r, warning=FALSE, echo=FALSE, include=FALSE}
+library(ggplot2)
+plot1 <-ggplot(data = dat, aes(x = GENDER, y = hemog, fill= GENDER ))+ 
+    geom_boxplot() +
+     scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+ 
+    labs(title="Hemog", x="",y="", fill= "GENDER")
+
+
+
+plot2 <-ggplot(data = dat, aes(x = GENDER, y = wbc, fill=GENDER))+ 
+    geom_boxplot() +
+    scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+  labs(title="White Blood Count by Gender ", x="",y="",fill="Gender")
+
+library(gridExtra)
+ grid.arrange(plot1, plot2, ncol=2)
+
+```
+
+#**hemog**  
+A Grubb's test was performed on hemog data.  The significance was p = `r format(dat_grubs$p.value, scientific=TRUE)`.  This indicates there are outliers, and we'll move to the next step, removing outliers for hemog data.  
+
+From the graphs, hemog has a high point around 123.  Mayo Clinic reports Hemoglobin is considered high when it's above 17.5 for men and 15.5 for females (Mayo Clinic).  The conclusion is 123 hemog is probably a typing error.  The other extreme is the low hemoglobin.  The graph shows numerous values under 2. Mayo Clinic reports a low hemog value would be between 12 and 13.5 for adults.  The values below 2 are most likely entry errors.  I would recommend changing the values to NAs instead of fixing them.
+
+I have used two methods to eliminate the outliers: Chebyshev's and interquartile.  The Chebyshev's theorem boundaries were two standard deviation.  Interquartile boundaries were 25 and 75.
+
+```{r, warning=FALSE,  echo=FALSE, include=FALSE}
+## remove outliers by 3 ways
+
+#################### manually remove outliers#############################
+
+to.remove <- c(144,197,294, 353,394,744,867,872,875,1003,1016,1025,385)
+dat_manual <-dat[!dat$id %in% to.remove, ]
+
+################### remove outliers with interquartile range###################
+
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+x <- dat$hemog
+y <- remove_outliers(x)
+hemog_new <-y
+dat_interquartile <- cbind(dat,hemog_new)
+x<-dat$wbc
+y<- remove_outliers(x)
+wbc_new <-y
+dat_interquartile <- cbind(dat_interquartile,wbc_new)
+#write.csv(dat_interquartile,"C:/Users/Haineycf/Documents/CAMP/CAMP_csv/camp_teach_outlier_removed.csv")
+
+
+################ remove outliers based on boxplot var_name ################
+## By Klodian Dhana
+
+outlierKD <- function(dt, var) {
+  var_name <- eval(substitute(var),eval(dt))
+  na1 <- sum(is.na(var_name))
+  m1 <- mean(var_name, na.rm = T)
+  par(mfrow=c(2, 2), oma=c(0,0,3,0))
+  boxplot(var_name, main="With outliers")
+  hist(var_name, main="With outliers", xlab=NA, ylab=NA)
+  outlier <- boxplot.stats(var_name)$out
+  mo <- mean(outlier)
+  var_name <- ifelse(var_name %in% outlier, NA, var_name)
+  boxplot(var_name, main="Without outliers")
+  hist(var_name, main="Without outliers", xlab=NA, ylab=NA)
+  title("Outlier Check", outer=TRUE)
+  na2 <- sum(is.na(var_name))
+  cat("Outliers identified:", na2 - na1, "n")
+  cat("Propotion (%) of outliers:", round((na2 - na1) / sum(!is.na(var_name))*100, 1), "n")
+  cat("Mean of the outliers:", round(mo, 2), "n")
+  m2 <- mean(var_name, na.rm = T)
+  cat("Mean without removing outliers:", round(m1, 2), "n")
+  cat("Mean if we remove outliers:", round(m2, 2), "n")
+  response <- readline(prompt="Do you want to remove outliers and to replace with NA? [yes/no]: ")
+  if(response == "y" | response == "yes"){
+    dt[as.character(substitute(var))] <- invisible(var_name)
+    assign(as.character(as.list(match.call())$dt), dt, envir = .GlobalEnv)
+    cat("Outliers successfully removed", "n")
+    return(invisible(dt))
+  } else{
+    cat("Nothing changed", "n")
+    return(invisible(var_name))
+  }
+}
+
+
+dat_box<-dat
+outlierKD(dat_box, hemog)
+outlierKD(dat_box, wbc)
+
+```
+
+
+
+```{r, echo=FALSE,warning=FALSE,bunch_o_figs_pointsize, fig.height=4, fig.width=8, dev.args=list(pointsize=18)}
+#par(mfrow=c(1,2), las=1)
+plot0 <-ggplot(data = dat, aes(x = GENDER, y = hemog, fill=GENDER))+ 
+    geom_boxplot() +
+    scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+  labs(title="Hemog by Gender", x="",y="",fill="Gender")
+
+
+
+plot1 <-ggplot(data = dat_manual, aes(x = GENDER, y = hemog, fill=GENDER))+ 
+    geom_boxplot() +
+    scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+  labs(title="Hemog by Gender Oulier Removed \n by Chebyshev's Theorem", x="",y="",fill="Gender")
+
+plot2 <- ggplot(data = dat_interquartile, aes(x = GENDER, y = hemog_new, fill=GENDER))+ 
+    geom_boxplot() +
+    scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+  labs(title="Hemog by Gender Oulier Removed \n by Interquartile Analysis", x="",y="")
+
+z <-ggplot(data = dat_box, aes(x = GENDER, y = hemog, fill=GENDER))+ 
+    geom_boxplot() +
+    scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+  labs(title="Hemog by Gender Oulier Removed \n by BoxPlot var_name", 
+       x="",y="",fill="Gender")
+
+library(gridExtra)
+ grid.arrange(plot0,plot1, plot2, ncol=3, nrow=1)
+ 
+g_manual <-grubbs.test(dat_manual$hemog)
+g_int<-grubbs.test(dat_interquartile$hemog_new)
+ 
+```
+
+The original data has two females with values above 20 and no males above 20 for hemog.  From the graphs it is easy to see the interquartile analysis removed more points than the Chebyshev's. Chebyshev's largest value is `r max(dat_manual$hemog,na.rm = TRUE)`, while interquartile is `r max(dat_interquartile$hemog_new,na.rm=TRUE)`. Chebyshev removed two values, one around 41 and the other around 121.  Interquartile also removed more, not reaching what Mayo Clinic calls "high hemoglobin's". Checking the Grubbs test again, Chebyshev removal has a outlier probability of `r g_manual$p.value` and interquartile has a significance of `r g_int$p.value`.
+
+```{r,echo=FALSE, warning=FALSE}
+### remove NAs to perform test
+dat_interquartile_rm <-dat_interquartile[ which(dat_interquartile$hemog_new >0), ]
+dat_box_rm <-dat_box[ which(dat_box$hemog >0), ]
+dat_manual_rm <-dat_manual[ which(dat_manual$hemog >0), ]
+
+library(outliers)   ## most can not handle NAs
+inter_cochran <-cochran.test(hemog_new~group1,dat_interquartile_rm)
+cheb_cochran <-cochran.test(hemog~group1,dat_manual_rm)
+
+wbc_grub <- grubbs.test(dat$wbc)
+```
+
+#**White Blood Count**  
+Mayo Clinic reports the normal wbc is 45 to 110.  Our data shows values in access of 100, but they are not single outliers.  From the Grubbs test the p-value is `r wbc_grub$p.value` this suggest some of them maybe outliers.  The maximum wbc is `r max(dat$wbc, na.rm =TRUE)`.     
+
+```{r, echo=FALSE, warning=FALSE}
+### now do same for wbc
+plot1 <-ggplot(data = dat, aes(x = GENDER, y = wbc, fill=GENDER))+ 
+    geom_boxplot() +
+    scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+  labs(title="White Blood Count", x="",y="",fill="Gender")
+
+plot2 <-ggplot(data = dat_manual, aes(x = GENDER, y = wbc, fill=GENDER))+ 
+    geom_boxplot() +
+    scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+  labs(title="White Blood Count\n Oulier Removed by Chebyshev", x="",y="",fill="Gender")
+
+plot3 <-ggplot(data = dat_interquartile, aes(x = GENDER, y = wbc_new, fill=GENDER))+ 
+    geom_boxplot() +
+    scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+  labs(title="White Blood Count by Gender Oulier Removed \n by Interquartile Analysis", x="",y="",fill="Gender")
+
+plot4 <-ggplot(data = dat_box, aes(x = GENDER, y = wbc, fill=GENDER))+ 
+    geom_boxplot() +
+    scale_x_discrete(breaks =c("f","m"),
+                     labels=c("female","male")) +
+  labs(title="White Blood Count by Gender Oulier Removed \n by BoxPlot var_name", 
+       x="",y="",fill="Gender")
+library(gridExtra)
+ grid.arrange(plot1, plot2,plot3, ncol=3, nrow=1)
+
+
+
+### remove NAs to perform test
+dat1 <-dat[ which(dat$wbc >0), ]
+dat_interquartile_rm <-dat_interquartile[ which(dat_interquartile$wbc_new >0), ]
+dat_box_rm <-dat_box[ which(dat_box$wbc >0), ]
+dat_manual_rm <-dat_manual[ which(dat_manual$wbc >0), ]
+
+
+library(outliers)   ## most can not handle NAs
+wbc_inter_grub <-grubbs.test(dat_interquartile_rm$wbc_new)
+wbc_box_grub <-grubbs.test(dat_box_rm$wbc)
+wbc_Cheb_grub <-grubbs.test(dat_manual_rm$wbc)
+wbc_raw_grub <-grubbs.test(dat1$wbc)
+
+```
+Removing outliers for wbc was trickier than hemog.  There were obvious outliers for hemog.  Wbc on the other had is skewed, there are more data shifted to the right, complicating outlier analysis.  When Chebyshev's points were removed, the outlier probability is `r format(wbc_Cheb_grub$p.value, scientific=TRUE)`, interquartile has a p-value of `r format(wbc_inter_grub$p.value, scientific=TRUE)`.  Both Chebyshev's and Interquartile make an improvement over the original `r format(wbc_raw_grub$p.value, scientific=TRUE)`, but it is hard to say exactly what to do.  Best bet is two obtain a second option about removing the individual because they are truly sicker than the study intended or change just the wbc data.
+
+
+```{r, include=FALSE}
+library(car)
+dat_NA_removed <-subset(dat, dat$hemog >0)
+fit <-lm(dat_NA_removed$hemog ~ hemog, data = dat_NA_removed)
+outlierTest(fit)
+
+```
+
